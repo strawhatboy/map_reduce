@@ -1,0 +1,58 @@
+syntax = "proto3";
+
+// import "google/protobuf/emtpy.proto";
+option go_package = "github.com/strawhatboy/map_reduce/proto";
+
+
+// for map request, the inputFile is a localfile?
+// for reduce request, the inputFile is a remote file located on some map worker.
+
+message Empty {}
+
+message MapReduceRequest {
+    string input_file = 1;
+    string script = 2;
+}
+
+message CommonResponse {
+    bool ok = 1;
+    string msg = 2;
+}
+
+// status:
+// 1: idle
+// 2: working as mapper
+// 3: working as reducer
+// 4: unknown
+message StatusResponse {
+    enum ClientStatus {
+        idle = 0;
+        working_mapper = 1;
+        working_reducer = 2;
+        unknown = 3;
+    }
+    ClientStatus status = 1;
+}
+
+service Client_Service {
+    rpc map (MapReduceRequest) returns (CommonResponse) {}
+    rpc reduce (MapReduceRequest) returns (CommonResponse) {}
+    rpc status (Empty) returns (StatusResponse) {}
+}
+
+message JobDoneRequest {
+    string id = 1;
+    string result_path = 2;
+}
+
+message RegisterRequest {
+    string client_id = 1;
+    string client_endpoint = 2;
+}
+
+service Server_Service {
+    rpc map_done (JobDoneRequest) returns (CommonResponse) {}
+    rpc reduce_done (JobDoneRequest) returns (CommonResponse) {}
+    rpc register (RegisterRequest) returns (CommonResponse) {}
+}
+

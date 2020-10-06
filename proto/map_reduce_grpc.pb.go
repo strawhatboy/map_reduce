@@ -20,6 +20,7 @@ type Client_ServiceClient interface {
 	Map(ctx context.Context, in *MapReduceRequest, opts ...grpc.CallOption) (*CommonResponse, error)
 	Reduce(ctx context.Context, in *MapReduceRequest, opts ...grpc.CallOption) (*CommonResponse, error)
 	Status(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*StatusResponse, error)
+	GetReduceSlice(ctx context.Context, in *ReduceSliceRequest, opts ...grpc.CallOption) (*ReduceSliceResponse, error)
 }
 
 type client_ServiceClient struct {
@@ -57,6 +58,15 @@ func (c *client_ServiceClient) Status(ctx context.Context, in *Empty, opts ...gr
 	return out, nil
 }
 
+func (c *client_ServiceClient) GetReduceSlice(ctx context.Context, in *ReduceSliceRequest, opts ...grpc.CallOption) (*ReduceSliceResponse, error) {
+	out := new(ReduceSliceResponse)
+	err := c.cc.Invoke(ctx, "/Client_Service/get_reduce_slice", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // Client_ServiceServer is the server API for Client_Service service.
 // All implementations must embed UnimplementedClient_ServiceServer
 // for forward compatibility
@@ -64,6 +74,7 @@ type Client_ServiceServer interface {
 	Map(context.Context, *MapReduceRequest) (*CommonResponse, error)
 	Reduce(context.Context, *MapReduceRequest) (*CommonResponse, error)
 	Status(context.Context, *Empty) (*StatusResponse, error)
+	GetReduceSlice(context.Context, *ReduceSliceRequest) (*ReduceSliceResponse, error)
 	mustEmbedUnimplementedClient_ServiceServer()
 }
 
@@ -79,6 +90,9 @@ func (UnimplementedClient_ServiceServer) Reduce(context.Context, *MapReduceReque
 }
 func (UnimplementedClient_ServiceServer) Status(context.Context, *Empty) (*StatusResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Status not implemented")
+}
+func (UnimplementedClient_ServiceServer) GetReduceSlice(context.Context, *ReduceSliceRequest) (*ReduceSliceResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetReduceSlice not implemented")
 }
 func (UnimplementedClient_ServiceServer) mustEmbedUnimplementedClient_ServiceServer() {}
 
@@ -147,6 +161,24 @@ func _Client_Service_Status_Handler(srv interface{}, ctx context.Context, dec fu
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Client_Service_GetReduceSlice_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ReduceSliceRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(Client_ServiceServer).GetReduceSlice(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/Client_Service/GetReduceSlice",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(Client_ServiceServer).GetReduceSlice(ctx, req.(*ReduceSliceRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 var _Client_Service_serviceDesc = grpc.ServiceDesc{
 	ServiceName: "Client_Service",
 	HandlerType: (*Client_ServiceServer)(nil),
@@ -162,6 +194,10 @@ var _Client_Service_serviceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "status",
 			Handler:    _Client_Service_Status_Handler,
+		},
+		{
+			MethodName: "get_reduce_slice",
+			Handler:    _Client_Service_GetReduceSlice_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

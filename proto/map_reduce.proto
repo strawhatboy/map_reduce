@@ -12,6 +12,13 @@ message Empty {}
 message MapReduceRequest {
     string input_file = 1;
     string script = 2;
+    enum DataProvider {
+        raw = 0;
+        audio = 1;
+        csv = 2;
+    }
+    DataProvider data_provider = 3;
+    int64 reducer_count = 4;
 }
 
 message CommonResponse {
@@ -34,10 +41,24 @@ message StatusResponse {
     ClientStatus status = 1;
 }
 
+message MapPair {
+    string first = 1;
+    int64 second = 2;
+}
+
+message ReduceSliceRequest {
+    int64 reduce_id = 1;
+}
+
+message ReduceSliceResponse {
+    repeated MapPair pairs = 1;
+}
+
 service Client_Service {
     rpc map (MapReduceRequest) returns (CommonResponse) {}
     rpc reduce (MapReduceRequest) returns (CommonResponse) {}
     rpc status (Empty) returns (StatusResponse) {}
+    rpc get_reduce_slice (ReduceSliceRequest) returns (ReduceSliceResponse) {}
 }
 
 message JobDoneRequest {

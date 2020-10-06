@@ -15,7 +15,8 @@ import (
 // The worker is the client side in our distributed system
 type Worker struct {
 	*pb.UnimplementedClient_ServiceServer
-	currentStatus    pb.StatusResponse_ClientStatus		//TODO: need mutex
+	id               string
+	currentStatus    pb.ClientStatus //TODO: need mutex
 	client           pb.Server_ServiceClient
 	vm               *otto.Otto
 	mapResults       []model.Pair
@@ -45,15 +46,15 @@ func (w *Worker) Init(config *c.Config) error {
 	return err
 }
 
-func (w *Worker) Map(ctx context.Context, req *pb.MapReduceRequest) (*pb.CommonResponse, error) {
+func (w *Worker) Map(ctx context.Context, req *pb.MapRequest) (*pb.CommonResponse, error) {
 	var provider d.Provider
 	switch req.DataProvider {
-	case pb.MapReduceRequest_raw:
+	case pb.DataProvider_raw:
 		provider = &d.RawData{FilePath: req.InputFile}
 	default:
 		break
 	}
-	w.currentStatus = pb.StatusResponse_working_mapper
+	w.currentStatus = pb.ClientStatus_working_mapper
 	// launch the go routine to do the map job
 	go func() {
 		provider.LoadData()
@@ -67,11 +68,18 @@ func (w *Worker) Map(ctx context.Context, req *pb.MapReduceRequest) (*pb.CommonR
 		// emmm how about partLen := math.Ceil(len(mapResults) / float(R))
 		// and get the ith slice by mapResults[partLen * i : partLen * (i+1)]
 		// good idea
+
+		// call server.MapDone
+		r, err := w.client.MapDone(ctx, &pb.JobDoneRequest{Id: w.id, ResultPath: ""})
+		if !r.Ok || err != nil {
+			// print error
+		}
 	}()
 	return &pb.CommonResponse{Ok: true, Msg: "Ok I'm working on it."}, nil
 }
 
-func (w *Worker) Reduce(context.Context, *pb.MapReduceRequest) (*pb.CommonResponse, error) {
+func (w *Worker) Reduce(ctx context.Context, req *pb.ReduceRequest) (*pb.CommonResponse, error) {
+
 	return nil, nil
 }
 func (w *Worker) Status(context.Context, *pb.Empty) (*pb.StatusResponse, error) {

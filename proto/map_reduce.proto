@@ -9,21 +9,36 @@ option go_package = "github.com/strawhatboy/map_reduce/proto";
 
 message Empty {}
 
-message MapReduceRequest {
+enum DataProvider {
+    raw = 0;
+    audio = 1;
+    csv = 2;
+}
+
+message MapRequest {
     string input_file = 1;
     string script = 2;
-    enum DataProvider {
-        raw = 0;
-        audio = 1;
-        csv = 2;
-    }
     DataProvider data_provider = 3;
     int64 reducer_count = 4;
+}
+
+message ReduceRequest {
+    string input_file = 1;
+    string script = 2;
+    int64 mapper_count = 3;
+    int64 mapper_no = 4;
 }
 
 message CommonResponse {
     bool ok = 1;
     string msg = 2;
+}
+
+enum ClientStatus {
+    idle = 0;
+    working_mapper = 1;
+    working_reducer = 2;
+    unknown = 3;
 }
 
 // status:
@@ -32,12 +47,6 @@ message CommonResponse {
 // 3: working as reducer
 // 4: unknown
 message StatusResponse {
-    enum ClientStatus {
-        idle = 0;
-        working_mapper = 1;
-        working_reducer = 2;
-        unknown = 3;
-    }
     ClientStatus status = 1;
 }
 
@@ -55,8 +64,8 @@ message ReduceSliceResponse {
 }
 
 service Client_Service {
-    rpc map (MapReduceRequest) returns (CommonResponse) {}
-    rpc reduce (MapReduceRequest) returns (CommonResponse) {}
+    rpc map (MapRequest) returns (CommonResponse) {}
+    rpc reduce (ReduceRequest) returns (CommonResponse) {}
     rpc status (Empty) returns (StatusResponse) {}
     rpc get_reduce_slice (ReduceSliceRequest) returns (ReduceSliceResponse) {}
 }

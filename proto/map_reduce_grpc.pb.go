@@ -17,8 +17,8 @@ const _ = grpc.SupportPackageIsVersion7
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type Client_ServiceClient interface {
-	Map(ctx context.Context, in *MapReduceRequest, opts ...grpc.CallOption) (*CommonResponse, error)
-	Reduce(ctx context.Context, in *MapReduceRequest, opts ...grpc.CallOption) (*CommonResponse, error)
+	Map(ctx context.Context, in *MapRequest, opts ...grpc.CallOption) (*CommonResponse, error)
+	Reduce(ctx context.Context, in *ReduceRequest, opts ...grpc.CallOption) (*CommonResponse, error)
 	Status(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*StatusResponse, error)
 	GetReduceSlice(ctx context.Context, in *ReduceSliceRequest, opts ...grpc.CallOption) (*ReduceSliceResponse, error)
 }
@@ -31,7 +31,7 @@ func NewClient_ServiceClient(cc grpc.ClientConnInterface) Client_ServiceClient {
 	return &client_ServiceClient{cc}
 }
 
-func (c *client_ServiceClient) Map(ctx context.Context, in *MapReduceRequest, opts ...grpc.CallOption) (*CommonResponse, error) {
+func (c *client_ServiceClient) Map(ctx context.Context, in *MapRequest, opts ...grpc.CallOption) (*CommonResponse, error) {
 	out := new(CommonResponse)
 	err := c.cc.Invoke(ctx, "/Client_Service/map", in, out, opts...)
 	if err != nil {
@@ -40,7 +40,7 @@ func (c *client_ServiceClient) Map(ctx context.Context, in *MapReduceRequest, op
 	return out, nil
 }
 
-func (c *client_ServiceClient) Reduce(ctx context.Context, in *MapReduceRequest, opts ...grpc.CallOption) (*CommonResponse, error) {
+func (c *client_ServiceClient) Reduce(ctx context.Context, in *ReduceRequest, opts ...grpc.CallOption) (*CommonResponse, error) {
 	out := new(CommonResponse)
 	err := c.cc.Invoke(ctx, "/Client_Service/reduce", in, out, opts...)
 	if err != nil {
@@ -71,8 +71,8 @@ func (c *client_ServiceClient) GetReduceSlice(ctx context.Context, in *ReduceSli
 // All implementations must embed UnimplementedClient_ServiceServer
 // for forward compatibility
 type Client_ServiceServer interface {
-	Map(context.Context, *MapReduceRequest) (*CommonResponse, error)
-	Reduce(context.Context, *MapReduceRequest) (*CommonResponse, error)
+	Map(context.Context, *MapRequest) (*CommonResponse, error)
+	Reduce(context.Context, *ReduceRequest) (*CommonResponse, error)
 	Status(context.Context, *Empty) (*StatusResponse, error)
 	GetReduceSlice(context.Context, *ReduceSliceRequest) (*ReduceSliceResponse, error)
 	mustEmbedUnimplementedClient_ServiceServer()
@@ -82,10 +82,10 @@ type Client_ServiceServer interface {
 type UnimplementedClient_ServiceServer struct {
 }
 
-func (UnimplementedClient_ServiceServer) Map(context.Context, *MapReduceRequest) (*CommonResponse, error) {
+func (UnimplementedClient_ServiceServer) Map(context.Context, *MapRequest) (*CommonResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Map not implemented")
 }
-func (UnimplementedClient_ServiceServer) Reduce(context.Context, *MapReduceRequest) (*CommonResponse, error) {
+func (UnimplementedClient_ServiceServer) Reduce(context.Context, *ReduceRequest) (*CommonResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Reduce not implemented")
 }
 func (UnimplementedClient_ServiceServer) Status(context.Context, *Empty) (*StatusResponse, error) {
@@ -108,7 +108,7 @@ func RegisterClient_ServiceServer(s *grpc.Server, srv Client_ServiceServer) {
 }
 
 func _Client_Service_Map_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(MapReduceRequest)
+	in := new(MapRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -120,13 +120,13 @@ func _Client_Service_Map_Handler(srv interface{}, ctx context.Context, dec func(
 		FullMethod: "/Client_Service/Map",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(Client_ServiceServer).Map(ctx, req.(*MapReduceRequest))
+		return srv.(Client_ServiceServer).Map(ctx, req.(*MapRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
 func _Client_Service_Reduce_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(MapReduceRequest)
+	in := new(ReduceRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -138,7 +138,7 @@ func _Client_Service_Reduce_Handler(srv interface{}, ctx context.Context, dec fu
 		FullMethod: "/Client_Service/Reduce",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(Client_ServiceServer).Reduce(ctx, req.(*MapReduceRequest))
+		return srv.(Client_ServiceServer).Reduce(ctx, req.(*ReduceRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }

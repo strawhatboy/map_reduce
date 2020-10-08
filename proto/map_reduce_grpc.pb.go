@@ -19,8 +19,10 @@ const _ = grpc.SupportPackageIsVersion7
 type Client_ServiceClient interface {
 	Map(ctx context.Context, in *MapRequest, opts ...grpc.CallOption) (*CommonResponse, error)
 	Reduce(ctx context.Context, in *ReduceRequest, opts ...grpc.CallOption) (*CommonResponse, error)
+	MapDone(ctx context.Context, in *JobDoneRequest, opts ...grpc.CallOption) (*CommonResponse, error)
 	Status(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*StatusResponse, error)
 	GetReduceSlice(ctx context.Context, in *ReduceSliceRequest, opts ...grpc.CallOption) (*ReduceSliceResponse, error)
+	Reset(ctx context.Context, in *ResetRequest, opts ...grpc.CallOption) (*CommonResponse, error)
 }
 
 type client_ServiceClient struct {
@@ -49,6 +51,15 @@ func (c *client_ServiceClient) Reduce(ctx context.Context, in *ReduceRequest, op
 	return out, nil
 }
 
+func (c *client_ServiceClient) MapDone(ctx context.Context, in *JobDoneRequest, opts ...grpc.CallOption) (*CommonResponse, error) {
+	out := new(CommonResponse)
+	err := c.cc.Invoke(ctx, "/Client_Service/map_done", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *client_ServiceClient) Status(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*StatusResponse, error) {
 	out := new(StatusResponse)
 	err := c.cc.Invoke(ctx, "/Client_Service/status", in, out, opts...)
@@ -67,14 +78,25 @@ func (c *client_ServiceClient) GetReduceSlice(ctx context.Context, in *ReduceSli
 	return out, nil
 }
 
+func (c *client_ServiceClient) Reset(ctx context.Context, in *ResetRequest, opts ...grpc.CallOption) (*CommonResponse, error) {
+	out := new(CommonResponse)
+	err := c.cc.Invoke(ctx, "/Client_Service/reset", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // Client_ServiceServer is the server API for Client_Service service.
 // All implementations must embed UnimplementedClient_ServiceServer
 // for forward compatibility
 type Client_ServiceServer interface {
 	Map(context.Context, *MapRequest) (*CommonResponse, error)
 	Reduce(context.Context, *ReduceRequest) (*CommonResponse, error)
+	MapDone(context.Context, *JobDoneRequest) (*CommonResponse, error)
 	Status(context.Context, *Empty) (*StatusResponse, error)
 	GetReduceSlice(context.Context, *ReduceSliceRequest) (*ReduceSliceResponse, error)
+	Reset(context.Context, *ResetRequest) (*CommonResponse, error)
 	mustEmbedUnimplementedClient_ServiceServer()
 }
 
@@ -88,11 +110,17 @@ func (UnimplementedClient_ServiceServer) Map(context.Context, *MapRequest) (*Com
 func (UnimplementedClient_ServiceServer) Reduce(context.Context, *ReduceRequest) (*CommonResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Reduce not implemented")
 }
+func (UnimplementedClient_ServiceServer) MapDone(context.Context, *JobDoneRequest) (*CommonResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method MapDone not implemented")
+}
 func (UnimplementedClient_ServiceServer) Status(context.Context, *Empty) (*StatusResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Status not implemented")
 }
 func (UnimplementedClient_ServiceServer) GetReduceSlice(context.Context, *ReduceSliceRequest) (*ReduceSliceResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetReduceSlice not implemented")
+}
+func (UnimplementedClient_ServiceServer) Reset(context.Context, *ResetRequest) (*CommonResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Reset not implemented")
 }
 func (UnimplementedClient_ServiceServer) mustEmbedUnimplementedClient_ServiceServer() {}
 
@@ -143,6 +171,24 @@ func _Client_Service_Reduce_Handler(srv interface{}, ctx context.Context, dec fu
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Client_Service_MapDone_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(JobDoneRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(Client_ServiceServer).MapDone(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/Client_Service/MapDone",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(Client_ServiceServer).MapDone(ctx, req.(*JobDoneRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _Client_Service_Status_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(Empty)
 	if err := dec(in); err != nil {
@@ -179,6 +225,24 @@ func _Client_Service_GetReduceSlice_Handler(srv interface{}, ctx context.Context
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Client_Service_Reset_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ResetRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(Client_ServiceServer).Reset(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/Client_Service/Reset",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(Client_ServiceServer).Reset(ctx, req.(*ResetRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 var _Client_Service_serviceDesc = grpc.ServiceDesc{
 	ServiceName: "Client_Service",
 	HandlerType: (*Client_ServiceServer)(nil),
@@ -192,12 +256,20 @@ var _Client_Service_serviceDesc = grpc.ServiceDesc{
 			Handler:    _Client_Service_Reduce_Handler,
 		},
 		{
+			MethodName: "map_done",
+			Handler:    _Client_Service_MapDone_Handler,
+		},
+		{
 			MethodName: "status",
 			Handler:    _Client_Service_Status_Handler,
 		},
 		{
 			MethodName: "get_reduce_slice",
 			Handler:    _Client_Service_GetReduceSlice_Handler,
+		},
+		{
+			MethodName: "reset",
+			Handler:    _Client_Service_Reset_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

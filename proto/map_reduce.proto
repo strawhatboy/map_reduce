@@ -1,5 +1,5 @@
 syntax = "proto3";
-
+import "google/protobuf/any.proto";
 // import "google/protobuf/emtpy.proto";
 option go_package = "github.com/strawhatboy/map_reduce/proto";
 
@@ -13,6 +13,10 @@ enum DataProvider {
     raw = 0;
     audio = 1;
     csv = 2;
+}
+
+message NumberMessage {
+    int64 num = 1;
 }
 
 message MapRequest {
@@ -56,7 +60,7 @@ message StatusResponse {
 
 message MapPair {
     string first = 1;
-    int64 second = 2;
+    google.protobuf.Any second = 2;
 }
 
 message ReduceSliceRequest {

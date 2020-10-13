@@ -2,13 +2,16 @@ package worker
 
 import (
 	context "context"
+	"math"
+	"sort"
+	"sync"
+
 	"github.com/robertkrimen/otto"
 	c "github.com/strawhatboy/map_reduce/config"
 	d "github.com/strawhatboy/map_reduce/data"
+	model "github.com/strawhatboy/map_reduce/model"
 	pb "github.com/strawhatboy/map_reduce/proto"
 	grpc "google.golang.org/grpc"
-	"math"
-	"sync"
 )
 
 //Worker ...
@@ -16,7 +19,7 @@ import (
 type Worker struct {
 	*pb.UnimplementedClient_ServiceServer
 	id               string
-	currentJobID	 string
+	currentJobID     string
 	mapperReducerID  int64
 	currentStatus    pb.ClientStatus //TODO: need mutex
 	client           pb.Server_ServiceClient
@@ -42,13 +45,13 @@ func (w *Worker) Init(config *c.Config) error {
 		key := call.Argument(0).String()
 		var value int64
 		value, err = call.Argument(1).ToInteger()
-		w.mapResults = append(w.mapResults, &pb.MapPair{First: key, Second: value})
+		w.mapResults = append(w.mapResults, model.PairCount{First: key, Second: value}.ToPbPair())
 		return otto.Value{}
 	})
 	w.vm.Set(`MR_reduceEmit`, func(call otto.FunctionCall) otto.Value {
 		var value int64
 		value, err = call.Argument(0).ToInteger()
-		w.reduceResults = append(w.reduceResults, &pb.MapPair{First: w.GetCurrentReduceKey(), Second: value})
+		w.reduceResults = append(w.reduceResults, model.PairCount{First: w.GetCurrentReduceKey(), Second: value }.ToPbPair())
 		return otto.Value{}
 	})
 	return err
@@ -98,10 +101,15 @@ func (w *Worker) Map(ctx context.Context, req *pb.MapRequest) (*pb.CommonRespons
 //MapDone ...
 // to be called by manager to notify that one of the map job was done. now the reducer can start to fetch the result
 func (w *Worker) MapDone(ctx context.Context, req *pb.JobDoneRequest) (*pb.CommonResponse, error) {
+	
+	if w.currentStatus != pb.ClientStatus_working_reducer {
+		return &pb.CommonResponse{Ok: false, Msg: "No. I'm currently working on " + w.currentStatus.String()}, nil
+	}
+
 	_, ok := w.mapReceived.Load(req.MapperReducerId)
 	if !ok {
 		go func() {
-			// ask for 
+			// ask for
 			conn, _ := grpc.Dial(req.ResultPath)
 			client := pb.NewClient_ServiceClient(conn)
 			res, err := client.GetReduceSlice(ctx, &pb.ReduceSliceRequest{ReduceId: w.mapperReducerID})
@@ -122,16 +130,40 @@ func (w *Worker) MapDone(ctx context.Context, req *pb.JobDoneRequest) (*pb.Commo
 			}
 			if allRecieved {
 				// do the reduce job and send back the reduce done request.
+				sort.Slice(w.mapResults, func (i int, j int) bool {
+					return w.mapResults[i].First < w.mapResults[j].First
+				})
+
+				_len := len(w.mapResults)
+				if _len > 0 {
+					w.currentReduceKey = w.mapResults[0].First
+					var count int64
+					count = 0
+					//TODO: problem here.
+					for i, x := range(w.mapResults) {
+						if x.First != w.currentReduceKey || i == _len-1 {
+							w.reduceResults = append(w.reduceResults, model.PairCount{First: w.currentReduceKey, Second: count}.ToPbPair())
+							w.currentReduceKey = x.First
+							count = 0
+						} else {
+							count++
+						}
+					}
+				}
 			}
 		}()
 	}
 
-	return nil, nil
+	return &pb.CommonResponse{Ok: true, Msg: "Ok, I'm on it"}, nil
 }
 
 //Reduce ...
 // to be called by manager to assign reduce job
 func (w *Worker) Reduce(ctx context.Context, req *pb.ReduceRequest) (*pb.CommonResponse, error) {
+	if w.currentStatus != pb.ClientStatus_idle {
+		return &pb.CommonResponse{Ok: false, Msg: "No. I'm currently working on " + w.currentStatus.String()}, nil
+	}
+	w.currentStatus = pb.ClientStatus_working_reducer
 	return nil, nil
 }
 

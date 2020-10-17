@@ -15,11 +15,15 @@ import (
 // the manager
 type Manager struct {
 	*pb.UnimplementedServer_ServiceServer
-	workers map[string] pb.Client_ServiceClient
-	currentJob	*Job
-	currentJobDone	chan struct{}
-	jobs	chan *Job
-	logger	*log.Entry
+	workers        map[string]pb.Client_ServiceClient
+	mappers        []string
+	reducers       []string
+	mapDone		map[string]bool
+	reduceDone		map[string]bool
+	currentJob     *Job
+	currentJobDone chan struct{}
+	jobs           chan *Job
+	logger         *log.Entry
 }
 
 func (m *Manager) Init() {
@@ -27,22 +31,39 @@ func (m *Manager) Init() {
 	m.logger = c.GetLogger("manager")
 	m.jobs = make(chan *Job, 10)
 	m.currentJobDone = make(chan struct{}, 1)
+	m.mappers = make([]string, 0)
+	m.reducers = make([]string, 0)
+	m.mapDone = make(map[string]bool)
+	m.reduceDone = make(map[string]bool, 0)
 	m.workers = make(map[string]pb.Client_ServiceClient, 100)
+
+	// start to pick jobs.
+	go m.pickJob()
 }
 
 //MapDone ...
 // worker will report when map job is done
-func (*Manager) MapDone(ctx context.Context, req *pb.JobDoneRequest) (*pb.CommonResponse, error) {
+func (m *Manager) MapDone(ctx context.Context, req *pb.JobDoneRequest) (*pb.CommonResponse, error) {
 	log.Info("map job ", req.JobId, "from client: ", req.MapperReducerId, " is done")
+	m.mapDone[m.mappers[req.MapperReducerId]] = true
 	// notify every reducer with the news
 
+	for _, cid := range m.mappers {
+		res, err := m.workers[cid].MapDone(ctx, req)
+		if err != nil || !res.Ok {
+			log.Error("job: ", req.JobId, ", failed to notify reducer: ", cid)
+		} else {
+			log.Info("job: ", req.JobId, ", notified reducer: ", cid)
+		}
+	}
 	return nil, nil
 }
 
 //ReduceDone ...
 // worker will report when reduce job is done
-func (*Manager) ReduceDone(ctx context.Context, req *pb.JobDoneRequest) (*pb.CommonResponse, error) {
+func (m *Manager) ReduceDone(ctx context.Context, req *pb.JobDoneRequest) (*pb.CommonResponse, error) {
 	log.Info("reduce job ", req.JobId, "from client: ", req.MapperReducerId, " is done")
+	m.reduceDone[m.reducers[req.MapperReducerId]] = true
 	// the job is done
 	return nil, nil
 }
@@ -58,7 +79,7 @@ func (m *Manager) Register(ctx context.Context, req *pb.RegisterRequest) (*pb.Co
 	}
 	m.workers[req.ClientId] = pb.NewClient_ServiceClient(conn)
 	return &pb.CommonResponse{
-		Ok: true,
+		Ok:  true,
 		Msg: "Successfully registered",
 	}, nil
 }
@@ -79,9 +100,10 @@ func (m *Manager) QueueJob(j *Job) {
 func (m *Manager) pickJob() error {
 	for {
 		m.logger.Info("going to pick up new job")
-		m.currentJob = <- m.jobs
+		m.currentJob = <-m.jobs
+		m.logger.Info("new job got: ", m.currentJob)
 		// allocate workers
-		if m.currentJob.MapperCount + m.currentJob.ReducerCount > len(m.workers) {
+		if m.currentJob.MapperCount+m.currentJob.ReducerCount > len(m.workers) {
 			// not enough workers
 			return &NotEnoughWorkerError{}
 		}
@@ -102,39 +124,53 @@ func (m *Manager) pickJob() error {
 		reduceScript = string(f)
 		log.Info("loaded reducer script from ", m.currentJob.ReducerFuncFile)
 
-		// assign 
+		// assign
 		var i int64 = 0
-		for _, w := range(m.workers) {
+		for cid, w := range m.workers {
 			if i < int64(m.currentJob.MapperCount) {
-				w.Map(context.Background(), &pb.MapRequest{
-					JobId: m.currentJob.ID, 
-					AssignedId: i,
+				res, err := w.Map(context.Background(), &pb.MapRequest{
+					JobId:        m.currentJob.ID,
+					AssignedId:   i,
 					DataProvider: pb.DataProvider(pb.DataProvider_value[m.currentJob.DataProvider]),
-					FileFilter: m.currentJob.FilePattern,
-					InputFile: m.currentJob.SourceFile,
-					IsDirectory: m.currentJob.IsDirectory,
+					FileFilter:   m.currentJob.FilePattern,
+					InputFiles:   m.currentJob.SourceFile,
+					IsDirectory:  m.currentJob.IsDirectory,
 					ReducerCount: int64(m.currentJob.ReducerCount),
-					Script: mapScript,
+					Script:       mapScript,
 				})
+				if err != nil || !res.Ok {
+					log.Error("failed to assign map task ", i, " to worker: ", cid)
+					continue
+				}
+				log.Info("assigned map task: ", i, " to worker: ", cid)
+				m.mappers = append(m.mappers, cid)
 			} else {
-				w.Reduce(context.Background(), &pb.ReduceRequest{
-					JobId: m.currentJob.ID, 
-					AssignedId: i,
-					Script: reduceScript,
+				theID := i - int64(m.currentJob.MapperCount)
+				res, err := w.Reduce(context.Background(), &pb.ReduceRequest{
+					JobId:        m.currentJob.ID,
+					AssignedId:   theID,
+					Script:       reduceScript,
 					OutputPrefix: m.currentJob.ID,
 				})
+				if err != nil || !res.Ok {
+					log.Error("failed to assign reduce task ", theID, " to worker: ", cid)
+					continue
+				}
+				log.Info("assigned reduce task: ", theID, " to worker: ", cid)
+				m.reducers = append(m.reducers, cid)
 			}
 
 			i++
 		}
 
 		// wait for current job done.
-		<- m.currentJobDone
+		<-m.currentJobDone
 		m.logger.Info("current job: ", m.currentJob.ID, " is done.")
 	}
 }
 
-type NotEnoughWorkerError struct {}
+type NotEnoughWorkerError struct{}
+
 func (ne *NotEnoughWorkerError) Error() string {
 	return "Not enough worker here... "
 }

@@ -96,7 +96,7 @@ func (w *Worker) Map(ctx context.Context, req *pb.MapRequest) (*pb.CommonRespons
 	switch req.DataProvider {
 	case pb.DataProvider_raw:
 		w.logger.Info("using rawdata data provider")
-		provider = &d.RawData{FilePath: req.InputFile}
+		provider = &d.RawData{}
 	default:
 		break
 	}
@@ -114,13 +114,15 @@ func (w *Worker) Map(ctx context.Context, req *pb.MapRequest) (*pb.CommonRespons
 	// launch the go routine to do the map job because it takes time, so we make it asynchronized.
 	go func() {
 		files := []string{}
-		if req.IsDirectory {
-			w.logger.Info("need to get all files in ", req.FileFilter)
-			// load all files.
-			files, _ = w.walkMatch(req.InputFile, req.FileFilter)
-		} else {
-			w.logger.Info("using single file ", req.InputFile)
-			files = append(files, req.InputFile)
+		for _, f := range req.InputFiles {
+			if req.IsDirectory {
+				w.logger.Info("need to get all files in ", f)
+				// load all files.
+				files, _ = w.walkMatch(f, req.FileFilter)
+			} else {
+				w.logger.Info("adding single file ", f)
+				files = append(files, f)
+			}
 		}
 
 		for _, f := range files {

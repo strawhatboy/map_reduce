@@ -25,7 +25,7 @@ message StringMessage {
 message MapRequest {
     int64 assigned_id = 1;
     string job_id = 2;
-    string input_file = 3;
+    repeated string input_files = 3;
     bool is_directory = 4;
     string file_filter = 5;
     string script = 6;

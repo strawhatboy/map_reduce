@@ -16,7 +16,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"sync"
 	"time"
 )
@@ -104,6 +103,14 @@ func (w *Worker) Map(ctx context.Context, req *pb.MapRequest) (*pb.CommonRespons
 	w.currentStatus = pb.ClientStatus_working_mapper
 	w.mapperReducerID = req.AssignedId
 	w.currentJobID = req.JobId
+
+	// need to load the script
+	_, err := w.vm.Eval(req.Script)
+	if err != nil {
+		log.Fatal("failed to eval the script from server")
+	}
+	log.Info("loaded the map script")
+
 	// launch the go routine to do the map job because it takes time, so we make it asynchronized.
 	go func() {
 		files := []string{}
@@ -119,7 +126,6 @@ func (w *Worker) Map(ctx context.Context, req *pb.MapRequest) (*pb.CommonRespons
 		for _, f := range files {
 			provider.SetPath(f)
 			provider.LoadData()
-			w.vm.Run(req.Script)
 			d := provider.ReadData()
 			for d != nil {
 				w.vm.Call(`MR_map`, nil, d)
@@ -190,19 +196,32 @@ func (w *Worker) MapDone(ctx context.Context, req *pb.JobDoneRequest) (*pb.Commo
 				_len := len(w.mapResults)
 				if _len > 0 {
 					w.currentReduceKey = w.mapResults[0].First
-					var count int64
-					count = 0
+					// var count int64
+					// count = 0
 					//TODO: problem here.
+					// for i, x := range w.mapResults {
+					// 	if x.First != w.currentReduceKey || i == _len-1 {
+					// 		w.reduceResults = append(w.reduceResults, model.PairCount{First: w.currentReduceKey, Second: strconv.FormatInt(count, 10)}.ToPbPair())
+					// 		w.currentReduceKey = x.First
+					// 		count = 0
+					// 	} else {
+					// 		mp := model.PairCount{}
+					// 		mp.FromPbPair(x)
+					// 		c, _ := strconv.Atoi(mp.Second)
+					// 		count = count + int64(c)
+					// 	}
+					// }
+					
+					// should call MR_reduce here
+					arr := []string{}
 					for i, x := range w.mapResults {
+						pc := model.PairCount{}
+						pc.FromPbPair(x)
 						if x.First != w.currentReduceKey || i == _len-1 {
-							w.reduceResults = append(w.reduceResults, model.PairCount{First: w.currentReduceKey, Second: strconv.FormatInt(count, 10)}.ToPbPair())
+							w.vm.Call("MR_reduce", nil, arr)
 							w.currentReduceKey = x.First
-							count = 0
 						} else {
-							mp := model.PairCount{}
-							mp.FromPbPair(x)
-							c, _ := strconv.Atoi(mp.Second)
-							count = count + int64(c)
+							arr = append(arr, pc.Second)
 						}
 					}
 				}
@@ -241,6 +260,8 @@ func (w *Worker) Reduce(ctx context.Context, req *pb.ReduceRequest) (*pb.CommonR
 	if w.currentStatus != pb.ClientStatus_idle {
 		return &pb.CommonResponse{Ok: false, Msg: "No. I'm currently working on " + w.currentStatus.String()}, nil
 	}
+	w.mapperReducerID = req.AssignedId
+	w.output = req.OutputPrefix + "-" + string(w.mapperReducerID)
 	w.currentStatus = pb.ClientStatus_working_reducer
 	return nil, nil
 }

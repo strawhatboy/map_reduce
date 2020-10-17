@@ -20,6 +20,7 @@ func (s *Scheduler) Init(m *Manager) {
 	r := gin.Default()
 	r.GET("/status", func(c *gin.Context) {
 		// return current system status
+		c.String(http.StatusOK, m.GetStatusMessage())
 	})
 	r.POST("/job/new", func(c *gin.Context) {
 		// init a new job with:
@@ -30,16 +31,17 @@ func (s *Scheduler) Init(m *Manager) {
 		//	source file
 		//	type: raw, audio, csv...
 		//	file_split_strategy
-		var job Job
-		if err := c.ShouldBindJSON(&job); err != nil {
+		job := &Job{}
+		if err := c.ShouldBindJSON(job); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"code": 9999,
 				"msg": "bad request",
 			})
 		} else {
-			
+			// create the job
+			m.QueueJob(job)
 		}
 	})
 	s.logger.Info("web api registered")
-	r.Run("127.0.0.1:18080")
+	go r.Run("127.0.0.1:18080")
 }

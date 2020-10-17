@@ -38,6 +38,7 @@ message ReduceRequest {
     string job_id = 2;
     string input_file = 3;
     string script = 4;
+    string output_prefix = 5;
 }
 
 

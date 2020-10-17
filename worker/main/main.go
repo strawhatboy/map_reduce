@@ -12,6 +12,8 @@ import (
 )
 
 func main() {
+	var portFromCmd int
+	flag.IntVar(&portFromCmd, "p", 20000, "the port")
 	mainLogger := c.GetLogger("main")
 	flag.Parse()
 	config, err := c.InitConfig()
@@ -22,17 +24,23 @@ func main() {
 	mainLogger.Info("worker starting with config: ", config)
 	s := &worker.Worker{}
 	var lis net.Listener
+	var port int
+	if portFromCmd != 20000 {
+		port = portFromCmd
+	} else {
+		port = config.Port
+	}
 	retryTimes := 9999
 	for ;retryTimes > 0; {
-		lis, err = net.Listen("tcp4", fmt.Sprintf("127.0.0.1:%d", config.Port))
+		lis, err = net.Listen("tcp4", fmt.Sprintf("127.0.0.1:%d", port))
 		if err == nil {
-			mainLogger.Info("listening at ", config.Port)
-			s.SetIpAndPort("127.0.0.1", int64(config.Port))
+			mainLogger.Info("listening at ", port)
+			s.SetIpAndPort("127.0.0.1", int64(port))
 			break
 		}
 		retryTimes--
-		config.Port++
-		mainLogger.Fatal(fmt.Sprintf("failed to listen: %v, retrying with port %v", err, config.Port))
+		port++
+		mainLogger.Fatal(fmt.Sprintf("failed to listen: %v, retrying with port %v", err, port))
 	}
 	// var opts []grpc.ServerOption
 	s.Init(config)

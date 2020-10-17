@@ -46,3 +46,7 @@ func (r *RawData) ReadLine() (string, error) {
 	return line, nil;
 }
 
+func (r *RawData) SetPath(p string) {
+	r.FilePath = p
+}
+

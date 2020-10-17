@@ -1,16 +1,18 @@
 package config
 
 import (
-	"io/ioutil"
 	json "encoding/json"
+	log "github.com/sirupsen/logrus"
+	"io/ioutil"
 )
 
 type Config struct {
-	Server string	`json:"server"`
+	Server string `json:"server"`
+	Port   int    `json:"port"`
 }
 
 func InitConfig() (*Config, error) {
-	f, err := ioutil.ReadFile("config.json")
+	f, err := ioutil.ReadFile("config/config.json")
 	if err != nil {
 		return nil, err
 	}
@@ -23,3 +25,9 @@ func InitConfig() (*Config, error) {
 	return &c, nil
 }
 
+func GetLogger(name ...string) *log.Entry {
+	if len(name) > 0 {
+		return log.WithField("module", name[0])
+	}
+	return log.WithField("module", nil)
+}

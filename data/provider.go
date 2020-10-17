@@ -5,4 +5,5 @@ package data
 type Provider interface {
 	LoadData() error
 	ReadData() interface{}
+	SetPath(p string)
 }

@@ -18,14 +18,19 @@ enum DataProvider {
 message NumberMessage {
     int64 num = 1;
 }
+message StringMessage {
+    string str = 1;
+}
 
 message MapRequest {
     int64 assigned_id = 1;
     string job_id = 2;
     string input_file = 3;
-    string script = 4;
-    DataProvider data_provider = 5;
-    int64 reducer_count = 6;
+    bool is_directory = 4;
+    string file_filter = 5;
+    string script = 6;
+    DataProvider data_provider = 7;
+    int64 reducer_count = 8;
 }
 
 message ReduceRequest {

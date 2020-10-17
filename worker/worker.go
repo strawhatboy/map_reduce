@@ -1,12 +1,18 @@
 package worker
 
 import (
+	"bufio"
 	context "context"
+	"fmt"
 	"math"
+	"os"
+	"path/filepath"
 	"sort"
+	"strconv"
 	"sync"
 
 	"github.com/robertkrimen/otto"
+	log "github.com/sirupsen/logrus"
 	c "github.com/strawhatboy/map_reduce/config"
 	d "github.com/strawhatboy/map_reduce/data"
 	model "github.com/strawhatboy/map_reduce/model"
@@ -30,30 +36,35 @@ type Worker struct {
 	currentReduceKey string
 	mapperCount      int64 // the mappers count, when reducer getting slices, it will use this to make sure all slices got.
 	reducerCount     int64
+	ip               string
+	port             int64
+	output           string
 }
 
 //Init ...
 // init the worker with config after the worker was created
 func (w *Worker) Init(config *c.Config) error {
+	log.Info("initializing worker")
 	w.mapResults = make([]*pb.MapPair, 100)
 	var conn, _ = grpc.Dial(config.Server)
 	w.client = pb.NewServer_ServiceClient(conn)
+	log.Info("client ready")
 	w.vm = otto.New()
 	w.mapReceived = &sync.Map{}
 	var err error = nil
 	w.vm.Set(`MR_mapEmit`, func(call otto.FunctionCall) otto.Value {
 		key := call.Argument(0).String()
-		var value int64
-		value, err = call.Argument(1).ToInteger()
+		value := call.Argument(1).String()
 		w.mapResults = append(w.mapResults, model.PairCount{First: key, Second: value}.ToPbPair())
 		return otto.Value{}
 	})
 	w.vm.Set(`MR_reduceEmit`, func(call otto.FunctionCall) otto.Value {
-		var value int64
-		value, err = call.Argument(0).ToInteger()
-		w.reduceResults = append(w.reduceResults, model.PairCount{First: w.GetCurrentReduceKey(), Second: value }.ToPbPair())
+		value := call.Argument(0).String()
+		w.reduceResults = append(w.reduceResults, model.PairCount{First: w.GetCurrentReduceKey(), Second: value}.ToPbPair())
 		return otto.Value{}
 	})
+	log.Info("vm ready")
+	log.Info("initialized")
 	return err
 }
 
@@ -61,11 +72,14 @@ func (w *Worker) Init(config *c.Config) error {
 // to be called by manager to assign map jobs
 func (w *Worker) Map(ctx context.Context, req *pb.MapRequest) (*pb.CommonResponse, error) {
 	if w.currentStatus != pb.ClientStatus_idle {
+		log.Warn("cannot change to a map worker because currently working on: ", w.currentStatus.String())
 		return &pb.CommonResponse{Ok: false, Msg: "No. I'm currently working on " + w.currentStatus.String()}, nil
 	}
+	log.Info("going to work as a map worker")
 	var provider d.Provider
 	switch req.DataProvider {
 	case pb.DataProvider_raw:
+		log.Info("using rawdata data provider")
 		provider = &d.RawData{FilePath: req.InputFile}
 	default:
 		break
@@ -75,24 +89,40 @@ func (w *Worker) Map(ctx context.Context, req *pb.MapRequest) (*pb.CommonRespons
 	w.currentJobID = req.JobId
 	// launch the go routine to do the map job because it takes time, so we make it asynchronized.
 	go func() {
-		provider.LoadData()
-		w.vm.Run(req.Script)
-		d := provider.ReadData()
-		for d != nil {
-			w.vm.Call(`MR_map`, nil, d)
-			d = provider.ReadData()
+		files := []string{}
+		if req.IsDirectory {
+			log.Info("need to get all files in ", req.FileFilter)
+			// load all files.
+			files, _ = w.walkMatch(req.InputFile, req.FileFilter)
+		} else {
+			log.Info("using single file ", req.InputFile)
+			files = append(files, req.InputFile)
 		}
+
+		for _, f := range files {
+			provider.SetPath(f)
+			provider.LoadData()
+			w.vm.Run(req.Script)
+			d := provider.ReadData()
+			for d != nil {
+				w.vm.Call(`MR_map`, nil, d)
+				d = provider.ReadData()
+			}
+		}
+		log.Info("map done local")
 		// almost done, need to partition these results to R (reducer's count) parts
 		// emmm how about partLen := math.Ceil(len(mapResults) / float(R))
 		// and get the ith slice by mapResults[partLen * i : partLen * (i+1)]
 		// good idea
 
 		// call server.MapDone
-		r, err := w.client.MapDone(ctx, &pb.JobDoneRequest{JobId: w.currentJobID, MapperReducerId: w.mapperReducerID, ResultPath: ""})
+		r, err := w.client.MapDone(ctx, &pb.JobDoneRequest{JobId: w.currentJobID, MapperReducerId: w.mapperReducerID, ResultPath: fmt.Sprintf("%v:%v", w.ip, w.port)})
 		if !r.Ok || err != nil {
 			// print error
+			log.Error("failed to send result to server: ", err)
 			w.currentStatus = pb.ClientStatus_unknown
 		}
+		log.Info("map done")
 		w.currentStatus = pb.ClientStatus_idle
 	}()
 	return &pb.CommonResponse{Ok: true, Msg: "Ok I'm working on it."}, nil
@@ -101,10 +131,12 @@ func (w *Worker) Map(ctx context.Context, req *pb.MapRequest) (*pb.CommonRespons
 //MapDone ...
 // to be called by manager to notify that one of the map job was done. now the reducer can start to fetch the result
 func (w *Worker) MapDone(ctx context.Context, req *pb.JobDoneRequest) (*pb.CommonResponse, error) {
-	
+
 	if w.currentStatus != pb.ClientStatus_working_reducer {
+		log.Warn("cannot work as a reducer to receive map result because currently on: ", w.currentStatus.String())
 		return &pb.CommonResponse{Ok: false, Msg: "No. I'm currently working on " + w.currentStatus.String()}, nil
 	}
+	log.Info("going to receive map results from map worker: ", req.MapperReducerId)
 
 	_, ok := w.mapReceived.Load(req.MapperReducerId)
 	if !ok {
@@ -116,21 +148,25 @@ func (w *Worker) MapDone(ctx context.Context, req *pb.JobDoneRequest) (*pb.Commo
 			// put res
 			if err != nil {
 				// boom ?
+				log.Error("failed to init connection with map worker: ", req.MapperReducerId, " ", req.ResultPath)
 			}
+
+			log.Info("connection to map worker: ", req.MapperReducerId, " ", req.ResultPath, " established")
 
 			w.mapResults = append(w.mapResults, res.Pairs...)
 			w.mapReceived.Store(req.MapperReducerId, true)
-			allRecieved := true
+			allReceived := true
 			for i := int64(0); i < w.mapperCount; i++ {
 				_, ok := w.mapReceived.Load(i)
 				if !ok {
-					allRecieved = false
+					allReceived = false
 					break
 				}
 			}
-			if allRecieved {
+			if allReceived {
+				log.Info("all slices received")
 				// do the reduce job and send back the reduce done request.
-				sort.Slice(w.mapResults, func (i int, j int) bool {
+				sort.Slice(w.mapResults, func(i int, j int) bool {
 					return w.mapResults[i].First < w.mapResults[j].First
 				})
 
@@ -140,16 +176,41 @@ func (w *Worker) MapDone(ctx context.Context, req *pb.JobDoneRequest) (*pb.Commo
 					var count int64
 					count = 0
 					//TODO: problem here.
-					for i, x := range(w.mapResults) {
+					for i, x := range w.mapResults {
 						if x.First != w.currentReduceKey || i == _len-1 {
-							w.reduceResults = append(w.reduceResults, model.PairCount{First: w.currentReduceKey, Second: count}.ToPbPair())
+							w.reduceResults = append(w.reduceResults, model.PairCount{First: w.currentReduceKey, Second: strconv.FormatInt(count, 10)}.ToPbPair())
 							w.currentReduceKey = x.First
 							count = 0
 						} else {
-							count++
+							mp := model.PairCount{}
+							mp.FromPbPair(x)
+							c, _ := strconv.Atoi(mp.Second)
+							count = count + int64(c)
 						}
 					}
 				}
+				log.Info("reduce results generated")
+
+				// write reduce results to file
+				outputfile, err := os.OpenFile(w.output, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+				dw := bufio.NewWriter(outputfile)
+				for _, rr := range(w.reduceResults) {
+					_rr := model.PairCount{}
+					_rr.FromPbPair(rr)
+					dw.WriteString(fmt.Sprintf("%v,%v", _rr.First, _rr.Second))
+				}
+				dw.Flush()
+				outputfile.Close()
+				log.Info("reduce results wrote to file")
+				// send reduce done
+				r, err := w.client.ReduceDone(ctx, &pb.JobDoneRequest{JobId: w.currentJobID})
+				if !r.Ok || err != nil {
+					// print error
+					log.Error("reduce error: ", err)
+					w.currentStatus = pb.ClientStatus_unknown
+				}
+				log.Info("reduce done")
+				w.currentStatus = pb.ClientStatus_idle
 			}
 		}()
 	}
@@ -205,4 +266,26 @@ func (w *Worker) Reset(ctx context.Context, req *pb.ResetRequest) (*pb.CommonRes
 // to be used when reducing.
 func (w *Worker) GetCurrentReduceKey() string {
 	return w.currentReduceKey
+}
+
+func (w *Worker) walkMatch(root, pattern string) ([]string, error) {
+	var matches []string
+	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			return nil
+		}
+		if matched, err := filepath.Match(pattern, filepath.Base(path)); err != nil {
+			return err
+		} else if matched {
+			matches = append(matches, filepath.Join(root, path))
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return matches, nil
 }

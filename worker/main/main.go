@@ -7,27 +7,36 @@ import (
 	"net"
 	grpc "google.golang.org/grpc"
 	pb "github.com/strawhatboy/map_reduce/proto"
-	log "github.com/sirupsen/logrus"
 	c "github.com/strawhatboy/map_reduce/config"
 	worker "github.com/strawhatboy/map_reduce/worker"
 )
 
 func main() {
+	mainLogger := c.GetLogger("main")
 	flag.Parse()
 	config, err := c.InitConfig()
 	if err != nil {
-		log.Error("Failed to init config: ", err)
+		mainLogger.Error("Failed to init config: ", err)
 		return
 	}
-	log.Info("Worker starting with config: ", config)
-	lis, err := net.Listen("tcp", fmt.Sprintf("localhost:%d", config.Port))
-	if err != nil {
-		log.Fatal("failed to listen: %v", err)
-	}
-	var opts []grpc.ServerOption
-	grpcServer := grpc.NewServer(opts...)
+	mainLogger.Info("worker starting with config: ", config)
 	s := &worker.Worker{}
+	var lis net.Listener
+	retryTimes := 9999
+	for ;retryTimes > 0; {
+		lis, err = net.Listen("tcp4", fmt.Sprintf("127.0.0.1:%d", config.Port))
+		if err == nil {
+			mainLogger.Info("listening at ", config.Port)
+			s.SetIpAndPort("127.0.0.1", int64(config.Port))
+			break
+		}
+		retryTimes--
+		config.Port++
+		mainLogger.Fatal(fmt.Sprintf("failed to listen: %v, retrying with port %v", err, config.Port))
+	}
+	// var opts []grpc.ServerOption
 	s.Init(config)
+	grpcServer := grpc.NewServer()
 	pb.RegisterClient_ServiceServer(grpcServer, s)
 	grpcServer.Serve(lis)
 }

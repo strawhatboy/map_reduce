@@ -14,7 +14,7 @@ import (
 	grpc "google.golang.org/grpc"
 	"math"
 	"os"
-	"path/filepath"
+	"github.com/strawhatboy/map_reduce/util"
 	"sort"
 	"sync"
 	"time"
@@ -118,7 +118,7 @@ func (w *Worker) Map(ctx context.Context, req *pb.MapRequest) (*pb.CommonRespons
 			if req.IsDirectory {
 				w.logger.Info("need to get all files in ", f)
 				// load all files.
-				files, _ = w.walkMatch(f, req.FileFilter)
+				files, _ = util.WalkMatch(f, req.FileFilter)
 			} else {
 				w.logger.Info("adding single file ", f)
 				files = append(files, f)
@@ -306,28 +306,6 @@ func (w *Worker) Reset(ctx context.Context, req *pb.ResetRequest) (*pb.CommonRes
 // to be used when reducing.
 func (w *Worker) GetCurrentReduceKey() string {
 	return w.currentReduceKey
-}
-
-func (w *Worker) walkMatch(root, pattern string) ([]string, error) {
-	var matches []string
-	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		if info.IsDir() {
-			return nil
-		}
-		if matched, err := filepath.Match(pattern, filepath.Base(path)); err != nil {
-			return err
-		} else if matched {
-			matches = append(matches, filepath.Join(root, path))
-		}
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	return matches, nil
 }
 
 func (w *Worker) tryToRegister() {

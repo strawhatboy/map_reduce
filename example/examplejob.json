@@ -1,0 +1,15 @@
+{
+    "mapper_count": 2,
+    "reducer_count": 2,
+    "mapper_func_file": "example/script/word_count_map.js",
+    "reducer_func_file": "example/script/word_count_reduce.js",
+    "source_file": [
+        "example/files/1.txt",
+        "example/files/2.txt",
+        "example/files/3.txt",
+        "example/files/4.txt"
+    ],
+    "file_pattern": "*.txt",
+    "IsDirectory": false,
+    "DataProvider": "raw"
+}

@@ -9,6 +9,7 @@ import (
 	c "github.com/strawhatboy/map_reduce/config"
 	pb "github.com/strawhatboy/map_reduce/proto"
 	grpc "google.golang.org/grpc"
+	"github.com/strawhatboy/map_reduce/util"
 )
 
 //Manager ...
@@ -124,6 +125,21 @@ func (m *Manager) pickJob() error {
 		reduceScript = string(f)
 		log.Info("loaded reducer script from ", m.currentJob.ReducerFuncFile)
 
+		// get files:
+		files := []string{}
+		for _, f := range m.currentJob.SourceFile {
+			if m.currentJob.IsDirectory {
+				m.logger.Info("need to get all files in ", f)
+				// load all files.
+				files, _ = util.WalkMatch(f, m.currentJob.FilePattern)
+			} else {
+				m.logger.Info("adding single file ", f)
+				files = append(files, f)
+			}
+		}
+
+		filesCountForEachMapper := int64(len(files) / m.currentJob.MapperCount + 1)
+
 		// assign
 		var i int64 = 0
 		for cid, w := range m.workers {
@@ -133,7 +149,7 @@ func (m *Manager) pickJob() error {
 					AssignedId:   i,
 					DataProvider: pb.DataProvider(pb.DataProvider_value[m.currentJob.DataProvider]),
 					FileFilter:   m.currentJob.FilePattern,
-					InputFiles:   m.currentJob.SourceFile,
+					InputFiles:   files[filesCountForEachMapper * i : filesCountForEachMapper * (i+1)],
 					IsDirectory:  m.currentJob.IsDirectory,
 					ReducerCount: int64(m.currentJob.ReducerCount),
 					Script:       mapScript,

@@ -9,7 +9,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	c "github.com/strawhatboy/map_reduce/config"
 	d "github.com/strawhatboy/map_reduce/data"
-	model "github.com/strawhatboy/map_reduce/model"
+	// model "github.com/strawhatboy/map_reduce/model"
 	pb "github.com/strawhatboy/map_reduce/proto"
 	grpc "google.golang.org/grpc"
 	"math"
@@ -51,7 +51,7 @@ func (w *Worker) Init(config *c.Config) error {
 	id := uuid.New()
 	w.id = id.String()
 	w.logger.Info("got id: ", w.id)
-	w.mapResults = make([]*pb.MapPair, 100)
+	w.mapResults = make([]*pb.MapPair, 0)
 	var conn, err = grpc.Dial(config.Server, grpc.WithInsecure(), grpc.WithBlock())
 	if err != nil {
 		w.logger.Error("Failed to connect to server")
@@ -64,12 +64,12 @@ func (w *Worker) Init(config *c.Config) error {
 	w.vm.Set(`MR_mapEmit`, func(call otto.FunctionCall) otto.Value {
 		key := call.Argument(0).String()
 		value := call.Argument(1).String()
-		w.mapResults = append(w.mapResults, model.PairCount{First: key, Second: value}.ToPbPair())
+		w.mapResults = append(w.mapResults, &pb.MapPair{First: key, Second: value})
 		return otto.Value{}
 	})
 	w.vm.Set(`MR_reduceEmit`, func(call otto.FunctionCall) otto.Value {
 		value := call.Argument(0).String()
-		w.reduceResults = append(w.reduceResults, model.PairCount{First: w.GetCurrentReduceKey(), Second: value}.ToPbPair())
+		w.reduceResults = append(w.reduceResults, &pb.MapPair{First: w.GetCurrentReduceKey(), Second: value})
 		return otto.Value{}
 	})
 	w.logger.Info("vm ready")
@@ -197,9 +197,9 @@ func (w *Worker) MapDone(ctx context.Context, req *pb.JobDoneRequest) (*pb.Commo
 			if allReceived {
 				w.logger.Info("all slices received, len: ", len(w.mapResults))
 				for _, i := range w.mapResults {
-					xx := model.PairCount{}
-					xx.FromPbPair(i)
-					w.logger.Info(xx)
+					// xx := model.PairCount{}
+					// xx.FromPbPair(i)
+					w.logger.Info(i)
 				}
 				// do the reduce job and send back the reduce done request.
 				sort.Slice(w.mapResults, func(i int, j int) bool {
@@ -228,13 +228,13 @@ func (w *Worker) MapDone(ctx context.Context, req *pb.JobDoneRequest) (*pb.Commo
 					// should call MR_reduce here
 					arr := []string{}
 					for i, x := range w.mapResults {
-						pc := model.PairCount{}
-						pc.FromPbPair(x)
+						// pc := model.PairCount{}
+						// pc.FromPbPair(x)
 						if x.First != w.currentReduceKey || i == _len-1 {
 							w.vm.Call("MR_reduce", nil, arr)
 							w.currentReduceKey = x.First
 						} else {
-							arr = append(arr, pc.Second)
+							arr = append(arr, x.Second)
 						}
 					}
 				}
@@ -244,16 +244,16 @@ func (w *Worker) MapDone(ctx context.Context, req *pb.JobDoneRequest) (*pb.Commo
 				outputfile, err := os.OpenFile(w.output, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 				dw := bufio.NewWriter(outputfile)
 				for _, rr := range w.reduceResults {
-					_rr := model.PairCount{}
-					_rr.FromPbPair(rr)
-					dw.WriteString(fmt.Sprintf("%v,%v", _rr.First, _rr.Second))
+					// _rr := model.PairCount{}
+					// _rr.FromPbPair(rr)
+					dw.WriteString(fmt.Sprintf("%v,%v", rr.First, rr.Second))
 				}
 				dw.Flush()
 				outputfile.Close()
 				w.logger.Info("reduce results wrote to file")
 				// send reduce done
-				r, err := w.client.ReduceDone(ctx, &pb.JobDoneRequest{JobId: w.currentJobID})
-				if !r.Ok || err != nil {
+				r, err := w.client.ReduceDone(context.Background(), &pb.JobDoneRequest{JobId: w.currentJobID})
+				if err != nil || !r.Ok {
 					// print error
 					w.logger.Error("reduce error: ", err)
 					w.currentStatus = pb.ClientStatus_unknown
@@ -274,7 +274,7 @@ func (w *Worker) Reduce(ctx context.Context, req *pb.ReduceRequest) (*pb.CommonR
 		return &pb.CommonResponse{Ok: false, Msg: "No. I'm currently working on " + w.currentStatus.String()}, nil
 	}
 	w.mapperReducerID = req.AssignedId
-	w.output = req.OutputPrefix + "-" + string(w.mapperReducerID)
+	w.output = req.OutputPrefix + "-" + string(w.mapperReducerID) + ".out"
 	w.currentStatus = pb.ClientStatus_working_reducer
 	return &pb.CommonResponse{Ok: true, Msg: "Ok, I'm on it"}, nil
 }

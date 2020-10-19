@@ -66,7 +66,7 @@ message StatusResponse {
 
 message MapPair {
     string first = 1;
-    google.protobuf.Any second = 2;
+    string second = 2;
 }
 
 message ReduceSliceRequest {

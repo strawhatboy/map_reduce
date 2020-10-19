@@ -22,12 +22,13 @@ func (p PairCount) toPbAny() *any.Any {
 }
 
 func (p PairCount) ToPbPair() *pb.MapPair {
-	return &pb.MapPair{First: p.First, Second: p.toPbAny()}
+	return &pb.MapPair{First: p.First, Second: p.Second}
 }
 
 func (p PairCount) FromPbPair(pp *pb.MapPair) {
-	strMsg := pb.StringMessage{}
-	ptypes.UnmarshalAny(pp.Second, &strMsg)
+	// strMsg := pb.StringMessage{}
+	// ptypes.UnmarshalAny(pp.Second, &strMsg)
 	p.First = pp.First
-	p.Second = strMsg.Str
+	// p.Second = strMsg.Str
+	p.Second = pp.Second
 }

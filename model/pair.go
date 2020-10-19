@@ -4,6 +4,7 @@ import (
 	ptypes "github.com/golang/protobuf/ptypes"
 	any "github.com/golang/protobuf/ptypes/any"
 	pb "github.com/strawhatboy/map_reduce/proto"
+	log "github.com/sirupsen/logrus"
 )
 
 type PairCount struct {
@@ -13,7 +14,10 @@ type PairCount struct {
 
 func (p PairCount) toPbAny() *any.Any {
 	m := &pb.StringMessage{Str: p.Second}
-	a, _ := ptypes.MarshalAny(m)
+	a, err := ptypes.MarshalAny(m)
+	if err != nil {
+		log.Error("failed convert PairCount: ", p, " to PbAny, err: ", err)
+	}
 	return a
 }
 

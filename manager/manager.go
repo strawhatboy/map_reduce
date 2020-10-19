@@ -3,13 +3,14 @@ package manager
 import (
 	context "context"
 	"io/ioutil"
+	"math"
 
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 	c "github.com/strawhatboy/map_reduce/config"
 	pb "github.com/strawhatboy/map_reduce/proto"
-	grpc "google.golang.org/grpc"
 	"github.com/strawhatboy/map_reduce/util"
+	grpc "google.golang.org/grpc"
 )
 
 //Manager ...
@@ -49,15 +50,18 @@ func (m *Manager) MapDone(ctx context.Context, req *pb.JobDoneRequest) (*pb.Comm
 	m.mapDone[m.mappers[req.MapperReducerId]] = true
 	// notify every reducer with the news
 
-	for _, cid := range m.mappers {
-		res, err := m.workers[cid].MapDone(ctx, req)
+	for _, cid := range m.reducers {
+		res, err := m.workers[cid].MapDone(context.Background(), req)
 		if err != nil || !res.Ok {
 			log.Error("job: ", req.JobId, ", failed to notify reducer: ", cid)
 		} else {
 			log.Info("job: ", req.JobId, ", notified reducer: ", cid)
 		}
 	}
-	return nil, nil
+	return &pb.CommonResponse{
+		Ok:  true,
+		Msg: "good job",
+	}, nil
 }
 
 //ReduceDone ...
@@ -66,7 +70,10 @@ func (m *Manager) ReduceDone(ctx context.Context, req *pb.JobDoneRequest) (*pb.C
 	log.Info("reduce job ", req.JobId, "from client: ", req.MapperReducerId, " is done")
 	m.reduceDone[m.reducers[req.MapperReducerId]] = true
 	// the job is done
-	return nil, nil
+	return &pb.CommonResponse{
+		Ok:  true,
+		Msg: "good job, dude",
+	}, nil
 }
 
 //Register ...
@@ -128,7 +135,7 @@ func (m *Manager) pickJob() error {
 		// get files:
 		files := []string{}
 		for _, f := range m.currentJob.SourceFile {
-			if m.currentJob.IsDirectory {
+			if *m.currentJob.IsDirectory {
 				m.logger.Info("need to get all files in ", f)
 				// load all files.
 				files, _ = util.WalkMatch(f, m.currentJob.FilePattern)
@@ -138,19 +145,23 @@ func (m *Manager) pickJob() error {
 			}
 		}
 
-		filesCountForEachMapper := int64(len(files) / m.currentJob.MapperCount + 1)
+		filesCountForEachMapper := int64(math.Ceil(float64(len(files)) / float64(m.currentJob.MapperCount)))
 
 		// assign
 		var i int64 = 0
 		for cid, w := range m.workers {
 			if i < int64(m.currentJob.MapperCount) {
+				end := filesCountForEachMapper * (i+1)
+				if end > int64(m.currentJob.MapperCount) {
+					end = int64(m.currentJob.MapperCount)
+				}
 				res, err := w.Map(context.Background(), &pb.MapRequest{
 					JobId:        m.currentJob.ID,
 					AssignedId:   i,
 					DataProvider: pb.DataProvider(pb.DataProvider_value[m.currentJob.DataProvider]),
 					FileFilter:   m.currentJob.FilePattern,
-					InputFiles:   files[filesCountForEachMapper * i : filesCountForEachMapper * (i+1)],
-					IsDirectory:  m.currentJob.IsDirectory,
+					InputFiles:   files[filesCountForEachMapper * i : end],
+					IsDirectory:  *m.currentJob.IsDirectory,
 					ReducerCount: int64(m.currentJob.ReducerCount),
 					Script:       mapScript,
 				})
@@ -167,6 +178,7 @@ func (m *Manager) pickJob() error {
 					AssignedId:   theID,
 					Script:       reduceScript,
 					OutputPrefix: m.currentJob.ID,
+					InputFile: "",
 				})
 				if err != nil || !res.Ok {
 					log.Error("failed to assign reduce task ", theID, " to worker: ", cid)

@@ -10,6 +10,6 @@
         "example/files/4.txt"
     ],
     "file_pattern": "*.txt",
-    "IsDirectory": false,
-    "DataProvider": "raw"
+    "is_directory": false,
+    "data_provider": "raw"
 }

@@ -103,11 +103,12 @@ func (w *Worker) Map(ctx context.Context, req *pb.MapRequest) (*pb.CommonRespons
 	w.currentStatus = pb.ClientStatus_working_mapper
 	w.mapperReducerID = req.AssignedId
 	w.currentJobID = req.JobId
+	w.reducerCount = req.ReducerCount
 
 	// need to load the script
 	_, err := w.vm.Eval(req.Script)
 	if err != nil {
-		log.Fatal("failed to eval the script from server")
+		log.Fatal("failed to eval the script from server: ", req.Script, "\n err: ", err)
 	}
 	log.Info("loaded the map script")
 
@@ -141,8 +142,10 @@ func (w *Worker) Map(ctx context.Context, req *pb.MapRequest) (*pb.CommonRespons
 		// good idea
 
 		// call server.MapDone
-		r, err := w.client.MapDone(ctx, &pb.JobDoneRequest{JobId: w.currentJobID, MapperReducerId: w.mapperReducerID, ResultPath: fmt.Sprintf("%v:%v", w.ip, w.port)})
-		if !r.Ok || err != nil {
+		resultPath := fmt.Sprintf("%v:%v", w.ip, w.port)
+		w.logger.Info("going to call server's MapDone with result path: ", resultPath)
+		r, err := w.client.MapDone(context.Background(), &pb.JobDoneRequest{JobId: w.currentJobID, MapperReducerId: w.mapperReducerID, ResultPath: resultPath})
+		if err != nil || !r.Ok {
 			// print error
 			w.logger.Error("failed to send result to server: ", err)
 			w.currentStatus = pb.ClientStatus_unknown
@@ -167,13 +170,16 @@ func (w *Worker) MapDone(ctx context.Context, req *pb.JobDoneRequest) (*pb.Commo
 	if !ok {
 		go func() {
 			// ask for
-			conn, _ := grpc.Dial(req.ResultPath)
+			conn, err := grpc.Dial(req.ResultPath, grpc.WithInsecure(), grpc.WithBlock())
+			if err != nil {
+				w.logger.Error("failed to dial to mapper: ", req.ResultPath, ", err: ", err)
+			}
 			client := pb.NewClient_ServiceClient(conn)
-			res, err := client.GetReduceSlice(ctx, &pb.ReduceSliceRequest{ReduceId: w.mapperReducerID})
+			res, err := client.GetReduceSlice(context.Background(), &pb.ReduceSliceRequest{ReduceId: w.mapperReducerID})
 			// put res
 			if err != nil {
 				// boom ?
-				w.logger.Error("failed to init connection with map worker: ", req.MapperReducerId, " ", req.ResultPath)
+				w.logger.Error("failed to get reduce slice with map worker: ", req.MapperReducerId, " ", req.ResultPath, ", err: ", err)
 			}
 
 			w.logger.Info("connection to map worker: ", req.MapperReducerId, " ", req.ResultPath, " established")
@@ -189,7 +195,12 @@ func (w *Worker) MapDone(ctx context.Context, req *pb.JobDoneRequest) (*pb.Commo
 				}
 			}
 			if allReceived {
-				w.logger.Info("all slices received")
+				w.logger.Info("all slices received, len: ", len(w.mapResults))
+				for _, i := range w.mapResults {
+					xx := model.PairCount{}
+					xx.FromPbPair(i)
+					w.logger.Info(xx)
+				}
 				// do the reduce job and send back the reduce done request.
 				sort.Slice(w.mapResults, func(i int, j int) bool {
 					return w.mapResults[i].First < w.mapResults[j].First
@@ -265,7 +276,7 @@ func (w *Worker) Reduce(ctx context.Context, req *pb.ReduceRequest) (*pb.CommonR
 	w.mapperReducerID = req.AssignedId
 	w.output = req.OutputPrefix + "-" + string(w.mapperReducerID)
 	w.currentStatus = pb.ClientStatus_working_reducer
-	return nil, nil
+	return &pb.CommonResponse{Ok: true, Msg: "Ok, I'm on it"}, nil
 }
 
 //Status ...
@@ -277,13 +288,17 @@ func (w *Worker) Status(context.Context, *pb.Empty) (*pb.StatusResponse, error) 
 //GetReduceSlice ...
 // to be called by reduce worker to get the slice for reducing
 func (w *Worker) GetReduceSlice(ctx context.Context, req *pb.ReduceSliceRequest) (*pb.ReduceSliceResponse, error) {
+	w.logger.Info("going to provide reduce slice to req: ", req)
 	partLen := int64(math.Ceil(float64(len(w.mapResults)) / float64(w.reducerCount)))
+	w.logger.Info("length: ", partLen)
 	start := partLen * req.ReduceId
 	end := partLen * (req.ReduceId + 1)
 	_len := int64(len(w.mapResults))
+	w.logger.Info("total length: ", _len)
 	if end > _len {
 		end = _len
 	}
+	w.logger.Info("start & end: ", start, ":", end)
 	return &pb.ReduceSliceResponse{Pairs: w.mapResults[start:end]}, nil
 }
 

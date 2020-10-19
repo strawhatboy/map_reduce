@@ -1,6 +1,7 @@
 package manager
 
 import (
+	"fmt"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -35,7 +36,7 @@ func (s *Scheduler) Init(m *Manager) {
 		if err := c.ShouldBindJSON(job); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"code": 9999,
-				"msg": "bad request",
+				"msg": fmt.Sprintf("bad request: %v", err),
 			})
 		} else {
 			// create the job

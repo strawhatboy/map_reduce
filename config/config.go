@@ -7,8 +7,9 @@ import (
 )
 
 type Config struct {
-	Server string `json:"server"`
-	Port   int    `json:"port"`
+	Server    string `json:"server"`
+	Port      int    `json:"port"`
+	OutputDir string `json:"outputDir"`
 }
 
 func InitConfig() (*Config, error) {

@@ -4,20 +4,24 @@ import (
 	"bufio"
 	context "context"
 	"fmt"
+	"path"
+
 	"github.com/google/uuid"
 	"github.com/robertkrimen/otto"
 	log "github.com/sirupsen/logrus"
 	c "github.com/strawhatboy/map_reduce/config"
 	d "github.com/strawhatboy/map_reduce/data"
+
 	// model "github.com/strawhatboy/map_reduce/model"
-	pb "github.com/strawhatboy/map_reduce/proto"
-	grpc "google.golang.org/grpc"
 	"math"
 	"os"
-	"github.com/strawhatboy/map_reduce/util"
 	"sort"
 	"sync"
 	"time"
+
+	pb "github.com/strawhatboy/map_reduce/proto"
+	"github.com/strawhatboy/map_reduce/util"
+	grpc "google.golang.org/grpc"
 )
 
 //Worker ...
@@ -39,6 +43,7 @@ type Worker struct {
 	ip               string
 	port             int64
 	output           string
+	outputDir        string
 	logger           *log.Entry
 	isRegistered     bool
 }
@@ -47,11 +52,14 @@ type Worker struct {
 // init the worker with config after the worker was created
 func (w *Worker) Init(config *c.Config) error {
 	w.logger = c.GetLogger("worker")
+	// w.logger.Logger.SetLevel(log.DebugLevel)
 	w.logger.Info("initializing worker")
 	id := uuid.New()
 	w.id = id.String()
 	w.logger.Info("got id: ", w.id)
+	w.reduceResults = make([]*pb.MapPair, 0)
 	w.mapResults = make([]*pb.MapPair, 0)
+	w.outputDir = config.OutputDir
 	var conn, err = grpc.Dial(config.Server, grpc.WithInsecure(), grpc.WithBlock())
 	if err != nil {
 		w.logger.Error("Failed to connect to server")
@@ -64,11 +72,13 @@ func (w *Worker) Init(config *c.Config) error {
 	w.vm.Set(`MR_mapEmit`, func(call otto.FunctionCall) otto.Value {
 		key := call.Argument(0).String()
 		value := call.Argument(1).String()
+		w.logger.Debug("MR_mapEmit called with params: ", key, value)
 		w.mapResults = append(w.mapResults, &pb.MapPair{First: key, Second: value})
 		return otto.Value{}
 	})
 	w.vm.Set(`MR_reduceEmit`, func(call otto.FunctionCall) otto.Value {
 		value := call.Argument(0).String()
+		w.logger.Debug("MR_reduceEmit called with params: ", value)
 		w.reduceResults = append(w.reduceResults, &pb.MapPair{First: w.GetCurrentReduceKey(), Second: value})
 		return otto.Value{}
 	})
@@ -187,6 +197,7 @@ func (w *Worker) MapDone(ctx context.Context, req *pb.JobDoneRequest) (*pb.Commo
 			w.mapResults = append(w.mapResults, res.Pairs...)
 			w.mapReceived.Store(req.MapperReducerId, true)
 			allReceived := true
+			w.logger.Info("checking if all mapper results received, mapper count: ", w.mapperCount)
 			for i := int64(0); i < w.mapperCount; i++ {
 				_, ok := w.mapReceived.Load(i)
 				if !ok {
@@ -199,7 +210,7 @@ func (w *Worker) MapDone(ctx context.Context, req *pb.JobDoneRequest) (*pb.Commo
 				for _, i := range w.mapResults {
 					// xx := model.PairCount{}
 					// xx.FromPbPair(i)
-					w.logger.Info(i)
+					w.logger.Debug(i)
 				}
 				// do the reduce job and send back the reduce done request.
 				sort.Slice(w.mapResults, func(i int, j int) bool {
@@ -224,15 +235,21 @@ func (w *Worker) MapDone(ctx context.Context, req *pb.JobDoneRequest) (*pb.Commo
 					// 		count = count + int64(c)
 					// 	}
 					// }
-					
+
 					// should call MR_reduce here
 					arr := []string{}
 					for i, x := range w.mapResults {
 						// pc := model.PairCount{}
 						// pc.FromPbPair(x)
 						if x.First != w.currentReduceKey || i == _len-1 {
-							w.vm.Call("MR_reduce", nil, arr)
+							w.logger.Debug("calling MR_reduce in golang with params: ", arr)
+							w.vm.Set(`theReduceArray`, arr)
+							_, err := w.vm.Eval(`MR_reduce(theReduceArray)`)
+							if err != nil {
+								w.logger.Error("failed to eval MR_reduce, err: ", err)
+							}
 							w.currentReduceKey = x.First
+							arr = []string{ x.Second }
 						} else {
 							arr = append(arr, x.Second)
 						}
@@ -241,18 +258,22 @@ func (w *Worker) MapDone(ctx context.Context, req *pb.JobDoneRequest) (*pb.Commo
 				w.logger.Info("reduce results generated")
 
 				// write reduce results to file
-				outputfile, err := os.OpenFile(w.output, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+				outputFilePath := path.Join(w.outputDir, w.output)
+				outputfile, err := os.OpenFile(outputFilePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+				if err != nil {
+					w.logger.Error(fmt.Sprintf("failed to open file for written: %v, err: %v", outputFilePath, err))
+				}
 				dw := bufio.NewWriter(outputfile)
 				for _, rr := range w.reduceResults {
 					// _rr := model.PairCount{}
 					// _rr.FromPbPair(rr)
-					dw.WriteString(fmt.Sprintf("%v,%v", rr.First, rr.Second))
+					dw.WriteString(fmt.Sprintf("%v,%v\n", rr.First, rr.Second))
 				}
 				dw.Flush()
 				outputfile.Close()
-				w.logger.Info("reduce results wrote to file")
+				w.logger.Info("reduce results wrote to file: ", outputFilePath)
 				// send reduce done
-				r, err := w.client.ReduceDone(context.Background(), &pb.JobDoneRequest{JobId: w.currentJobID})
+				r, err := w.client.ReduceDone(context.Background(), &pb.JobDoneRequest{JobId: w.currentJobID, MapperReducerId: w.mapperReducerID, ResultPath: outputFilePath})
 				if err != nil || !r.Ok {
 					// print error
 					w.logger.Error("reduce error: ", err)
@@ -274,8 +295,22 @@ func (w *Worker) Reduce(ctx context.Context, req *pb.ReduceRequest) (*pb.CommonR
 		return &pb.CommonResponse{Ok: false, Msg: "No. I'm currently working on " + w.currentStatus.String()}, nil
 	}
 	w.mapperReducerID = req.AssignedId
-	w.output = req.OutputPrefix + "-" + string(w.mapperReducerID) + ".out"
+	w.output = fmt.Sprintf("%v-%v.out", req.OutputPrefix, w.mapperReducerID)
 	w.currentStatus = pb.ClientStatus_working_reducer
+	w.mapperCount = req.MapperCount
+	
+	// need to load the script
+	_, err := w.vm.Eval(req.Script)
+	if err != nil {
+		log.Fatal("failed to eval the script from server: ", req.Script, "\n err: ", err)
+	}
+	// for i := int64(0); i < w.mapperCount; i++ {
+	// 	_, ok := w.mapReceived
+	// 	if !ok {
+	// 		allReceived = false
+	// 		break
+	// 	}
+	// }
 	return &pb.CommonResponse{Ok: true, Msg: "Ok, I'm on it"}, nil
 }
 

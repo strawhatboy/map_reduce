@@ -2,6 +2,7 @@ package manager
 
 import (
 	context "context"
+	"fmt"
 	"io/ioutil"
 	"math"
 
@@ -67,7 +68,7 @@ func (m *Manager) MapDone(ctx context.Context, req *pb.JobDoneRequest) (*pb.Comm
 //ReduceDone ...
 // worker will report when reduce job is done
 func (m *Manager) ReduceDone(ctx context.Context, req *pb.JobDoneRequest) (*pb.CommonResponse, error) {
-	log.Info("reduce job ", req.JobId, "from client: ", req.MapperReducerId, " is done")
+	log.Info("reduce job ", req.JobId, "from client: ", req.MapperReducerId, " is done: ", req)
 	m.reduceDone[m.reducers[req.MapperReducerId]] = true
 	// the job is done
 	return &pb.CommonResponse{
@@ -152,9 +153,10 @@ func (m *Manager) pickJob() error {
 		for cid, w := range m.workers {
 			if i < int64(m.currentJob.MapperCount) {
 				end := filesCountForEachMapper * (i+1)
-				if end > int64(m.currentJob.MapperCount) {
-					end = int64(m.currentJob.MapperCount)
+				if end > int64(len(files)) {
+					end = int64(len(files))
 				}
+				log.Info(fmt.Sprintf("assigning files from %v:%v to worker: %v", filesCountForEachMapper * i, end, cid))
 				res, err := w.Map(context.Background(), &pb.MapRequest{
 					JobId:        m.currentJob.ID,
 					AssignedId:   i,
@@ -179,6 +181,7 @@ func (m *Manager) pickJob() error {
 					Script:       reduceScript,
 					OutputPrefix: m.currentJob.ID,
 					InputFile: "",
+					MapperCount: int64(m.currentJob.MapperCount),
 				})
 				if err != nil || !res.Ok {
 					log.Error("failed to assign reduce task ", theID, " to worker: ", cid)

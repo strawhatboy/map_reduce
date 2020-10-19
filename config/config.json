@@ -1,4 +1,5 @@
 {
     "server": "127.0.0.1:19999",
-    "port": 20000
+    "port": 20000,
+    "outputDir": "output"
 }

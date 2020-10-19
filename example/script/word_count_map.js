@@ -1,4 +1,4 @@
-var isspace = function(c) { return c == " " }
+var isspace = function(c) { return c == " " || c == '\n' }
 
 var MR_map = function(line) {
     var n = line.length
